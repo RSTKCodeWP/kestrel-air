@@ -70,7 +70,7 @@ static void load_stock_tables(void) {
         have_stock = ok;
         // The manual white-balance gains by colour temperature are the CV2004's
         // only; for another sensor a temperature is turned into gains by the ISP.
-        if (ok && !strcmp(cv610_sensor_name(), "cv2004")) {
+        if (ok && !strcmp(camera_sensor_name(), "cv2004")) {
             fseek(f, OFF_WB_CV2004, SEEK_SET);
             have_wb = fread(wb_tab, sizeof(wb_tab), 1, f) == 1;
         }
@@ -91,7 +91,7 @@ static void load_stock_tables(void) {
 // its checksums made again.
 static void pq_bin_fit(uint8_t *buf, long size) {
     int w, h;
-    cv610_capture_size(&w, &h);
+    camera_capture_size(&w, &h);
     if (size < 0x201ac) return;
     const int window = !(w == 1920 && h == 1080);
     float r0;
@@ -149,11 +149,11 @@ static int pq_bin_load(int xg) {
     char path[160];
     const int tfps = fps > 100 ? 100 : fps;   // ours: 864p120 and 864p144 take the 100 fps tuning
     // The CV2004's bins are made per orientation; the OS02K10's are not.
-    if (cv610_sensor_angle_tuning())
-        snprintf(path, sizeof(path), "%s/cam_%s_%dfps_%d_xg%d_%s.bin", TUNING_DIR, cv610_sensor_name(), tfps,
+    if (camera_sensor_angle_tuning())
+        snprintf(path, sizeof(path), "%s/cam_%s_%dfps_%d_xg%d_%s.bin", TUNING_DIR, camera_sensor_name(), tfps,
                  angle ? 180 : 0, xg + 1, scene == 2 ? "night" : "day");
     else
-        snprintf(path, sizeof(path), "%s/cam_%s_%dfps_xg%d_%s.bin", TUNING_DIR, cv610_sensor_name(), tfps,
+        snprintf(path, sizeof(path), "%s/cam_%s_%dfps_xg%d_%s.bin", TUNING_DIR, camera_sensor_name(), tfps,
                  xg + 1, scene == 2 ? "night" : "day");
     FILE *f = fopen(path, "rb");
     if (!f) {

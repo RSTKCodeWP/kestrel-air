@@ -7,6 +7,12 @@
 
 // Every KA_* setting, where it is read and what its default is.
 static const struct { const char *name, *def, *what; } known[] = {
+    { "KA_CONFIG", "/factory/fpv_config.json", "application settings file" },
+    { "KA_PEER_CONFIG", "/factory/user_cfg.json", "paired receiver settings file" },
+    { "KA_CAMERA_TUNING", "required on AR9311", "source AE tuning file" },
+    { "KA_WB_RED", "required on AR9311", "initial ISP red gain (Q8)" },
+    { "KA_WB_BLUE", "required on AR9311", "initial ISP blue gain (Q8)" },
+    { "KA_WB_ORDER", "required on AR9311", "ISP statistics Bayer order" },
     { "KA_BOARD_TYPE", BOARD_TYPE_FILE, "stock's board type: 482 Lite, 472 Lite+; set by air/start.sh (unit/model.c)" },
     { "KA_IR",         "2",            "intra refresh, CTU rows (or columns) per picture; 0: periodic keyframes (video/encoder.c)" },
     { "KA_IR_MODE",    "0",            "intra refresh by rows (0) or columns (1)" },

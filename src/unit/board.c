@@ -12,6 +12,7 @@
 // The GPIOs are exported and set to in/out by the launcher, as stock's is.
 
 #include "unit/board.h"
+#include "platform/platform.h"
 #include "video/video.h"
 #include "app/state.h"
 
@@ -30,10 +31,10 @@
 #include "app/config.h"
 #include "common/clock.h"
 
-#define KEY_GPIO   "/sys/class/gpio/gpio0/value"
-#define LED_R      63
-#define LED_G      8
-#define USER_CFG   "/factory/user_cfg.json"
+#define KEY_GPIO platform_key_path()
+#define LED_R platform_red_gpio()
+#define LED_G platform_green_gpio()
+#define USER_CFG cfg_peer_path()
 
 static volatile int manu_trig;
 static volatile int pairing;
@@ -41,6 +42,7 @@ static volatile int pairing;
 // ---- LEDs -----------------------------------------------------------------
 
 static void gpio_set(int gpio, int on) {
+    if (gpio < 0) return;
     char path[64];
     snprintf(path, sizeof(path), "/sys/class/gpio/gpio%d/value", gpio);
     int fd = open(path, O_WRONLY);
@@ -155,11 +157,8 @@ static int key_read(int fd, char *c) {
 static void *key_thread(void *arg) {
     (void)arg;
     char c;
-    int fd = open(KEY_GPIO, O_RDONLY);
-    if (fd <= 0) {
-        puts("board: cannot open the key input");
-        return NULL;
-    }
+    int fd = KEY_GPIO ? open(KEY_GPIO, O_RDONLY) : -1;
+    if (KEY_GPIO && fd < 0) puts("board: cannot open the key input");
     for (;;) {
         if (manu_trig) {
             puts("board: pairing asked for");
@@ -167,6 +166,7 @@ static void *key_thread(void *arg) {
             usleep(10000);
             manu_trig = 0;
         }
+        if (fd < 0) { usleep(20000); continue; }
         int n = key_read(fd, &c);
         if (n <= 0) { printf("board: key read failed (1, %d)\n", n); break; }
         if (c == '1') { usleep(20000); continue; }             // released

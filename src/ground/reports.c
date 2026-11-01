@@ -3,6 +3,7 @@
 #include "ground/internal.h"
 
 #include <fcntl.h>
+#include <limits.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,6 +14,7 @@
 #include <unistd.h>
 
 #include "app/app.h"
+#include "platform/platform.h"
 #include "unit/model.h"
 #include "app/config.h"
 #include "app/state.h"
@@ -83,34 +85,14 @@ static void send_cam_setting(void) {
 
 // The hardware version comes from a board-ID voltage on LSADC channel 1:
 // model select, enable, start, five reads, stop, disable - stock's sequence.
-static int hw_ver_mv(void) {
-    int fd = open("/dev/ot_lsadc", O_RDWR), sum = 0;
-    uint32_t model = 1, ch = 1;
-    if (fd < 0) return 0;
-    if (ioctl(fd, 0xc0044100, &model) >= 0 && ioctl(fd, 0x40044101, &ch) >= 0) {
-        usleep(100);
-        if (ioctl(fd, 0x4103) >= 0) {
-            for (int i = 0; i < 5; i++) {
-                usleep(100);
-                sum += ioctl(fd, 0xc0044105, &ch);
-            }
-        }
-    }
-    ioctl(fd, 0x4104);
-    ioctl(fd, 0x40044102, &ch);
-    close(fd);
-    int avg = sum / 5;
-    return avg > 0x3ff ? 0 : (int)(avg * 3300.0 / 1023.0);
-}
-
 static uint8_t hw_ver;   // the board-ID version, worked out by send_version()
 
 static void send_version(void) {
     static uint8_t m[16];
     static int done;
     if (!done) {
-        int mv = hw_ver_mv(), a = 0, b = 0, c = 0;
-        uint8_t hw = mv < 200 ? 0x10 : mv <= 449 ? 0x11 : mv <= 749 ? 0x12 : 0x13;
+        int mv = platform_hw_ver_mv(), a = 0, b = 0, c = 0;
+        uint8_t hw = mv < 0 ? 0 : mv < 200 ? 0x10 : mv <= 449 ? 0x11 : mv <= 749 ? 0x12 : 0x13;
         FILE *f = fopen("/etc/app.version", "r");
         char line[128];
         while (f && fgets(line, sizeof(line), f))
@@ -180,7 +162,7 @@ static void send_info(void) {
                            "app=kestrel-air\nver=%s\nos=%s\nradio=%s\nkernel=%s\nstock=%s\n"
                            "board=%d\nmodel=%s\nsensor=%s\nhw=0x%02x\nradiofw=%s\n",
                            KA_VERSION, os, radio, u.release, stock,
-                           model_board_type(), model_name(), cv610_sensor_name(), hw_ver,
+                           model_board_type(), model_name(), camera_sensor_name(), hw_ver,
                            strstr(fw, "open8030") ? "open8030" : "stock");
         if (len > (int)sizeof(m)) len = sizeof(m);
         printf("ground: info:");
@@ -193,8 +175,8 @@ static void send_info(void) {
     image_get_info(&isp);
     // 864p144 has no feature bit (the header's byte is full): said here.
     const int n = len + snprintf(out + len, sizeof(out) - (size_t)len, "readout=%u\nexposure=%u\n%s",
-                                 cv610_readout_us(), (unsigned)isp.exp_time_us,
-                                 cv610_has_864p144() ? "864p144=1\n" : "");
+                                 camera_readout_us(), (unsigned)isp.exp_time_us,
+                                 camera_has_864p144() ? "864p144=1\n" : "");
     ground_send((const uint8_t *)out, n < (int)sizeof(out) ? n : (int)sizeof(out) - 1);
 }
 
@@ -231,7 +213,7 @@ static void send_period(void) {
     memset(m, 0, sizeof(m));
     m[0] = 0x05;
     int t = shared.cpu_temp_x100;
-    m[1] = (uint8_t)(int8_t)(t >= 12800 ? 0x7f : (t / 100 < -100 ? -100 : t / 100));
+    m[1] = (uint8_t)(int8_t)(t == INT_MIN || t >= 12800 ? 0x7f : (t / 100 < -100 ? -100 : t / 100));
     uint16_t pw = (uint16_t)cfg_get("bb_power_mw", 501);
     memcpy(m + 9, &pw, 2);
     uint32_t mv = (uint32_t)radio_batt_mv();

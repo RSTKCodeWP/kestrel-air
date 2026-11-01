@@ -7,3 +7,5 @@ kestrel-air
 tests/run
 stubs/out/
 .sdk-check/
+
+.build/

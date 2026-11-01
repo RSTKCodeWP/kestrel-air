@@ -1,9 +1,9 @@
-# kestrel-air for the Caddx Ascent air unit (HiSilicon Hi3516CV610). It links
-# against stub libraries made from stubs/vendor-symbols.txt; the MPI interface
-# is in src/sdk/cv610.h. It needs an ARM musl toolchain (see README.md):
+# kestrel-air hardware backends: HiSilicon CV610 (default) or AR9311 V4L2.
+# HiSilicon links SDK stubs; AR9311 uses Linux camera/encoder devices.
+# Select a matching cross toolchain (see README.md and docs/ar9311.md):
 #   CROSS_COMPILE  the toolchain prefix
 # make test and make clean need none of it.
-BUILDING := $(if $(MAKECMDGOALS),$(filter-out clean test check-stubs need-sdk check-sdk-header,$(MAKECMDGOALS)),all)
+BUILDING := $(if $(MAKECMDGOALS),$(filter-out clean test test-ar9311 check-stubs need-sdk check-sdk-header,$(MAKECMDGOALS)),all)
 CC = $(CROSS_COMPILE)gcc
 
 SRC_DIR = src
@@ -25,8 +25,17 @@ endif
 CFLAGS += -I$(ARLIBRE)/lib
 RADIO_LIBS = -L$(ARLIBRE)/lib -lar8030_client
 
-SRCS = $(SRC_DIR)/main.c $(wildcard $(SRC_DIR)/*/*.c)
-OBJS = $(SRCS:.c=.o)
+BACKEND ?= hisilicon
+ifeq ($(filter $(BACKEND),hisilicon ar9311),)
+$(error BACKEND must be hisilicon or ar9311)
+endif
+SRCS = $(SRC_DIR)/main.c $(wildcard $(SRC_DIR)/*/*.c) $(wildcard $(SRC_DIR)/backends/$(BACKEND)/*.c)
+ifeq ($(BACKEND),ar9311)
+SRCS := $(filter-out src/camera/pipeline.c src/camera/image.c src/video/encoder.c,$(SRCS))
+CFLAGS += -DKA_PLATFORM_AR9311
+endif
+BUILD_DIR = .build/$(BACKEND)
+OBJS = $(patsubst %.c,$(BUILD_DIR)/%.o,$(SRCS))
 
 # The vendor libraries, in the order the unit loads them. Every one is linked
 # (--no-as-needed), those kestrel-air calls nothing in too: they do not name
@@ -41,10 +50,15 @@ STUB_SOS = $(patsubst %,$(STUB_DIR)/lib%.so,$(VENDOR_LIBS))
 LIBS = $(RADIO_LIBS) -L$(STUB_DIR) -Wl,--no-as-needed $(addprefix -l,$(VENDOR_LIBS)) \
 	-Wl,--as-needed -lm -lpthread -lrt -ldl
 
+ifeq ($(BACKEND),ar9311)
+STUB_SOS =
+LIBS = $(RADIO_LIBS) -lm -lpthread -lrt
+endif
+
 all: $(TARGET)
 
-$(TARGET): $(OBJS) $(STUB_SOS)
-	$(CC) $(CFLAGS) -o $@ $(OBJS) $(LIBS)
+$(TARGET): $(OBJS) $(STUB_SOS) FORCE
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(OBJS) $(LIBS)
 
 # The stub of one library: its SONAME and an empty function for each one
 # listed for it.
@@ -87,7 +101,8 @@ check-sdk-header: need-sdk
 
 # -MMD -MP: each object also depends on the headers it includes, so a
 # changed struct rebuilds everything that uses it.
-%.o: %.c
+$(BUILD_DIR)/%.o: %.c
+	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
 
 -include $(OBJS:.o=.d)
@@ -106,6 +121,14 @@ test: tests/run
 
 clean:
 	rm -f $(OBJS) $(OBJS:.o=.d) $(TARGET) tests/run
-	rm -rf $(STUB_DIR) $(SDK_CHECK)
+	rm -rf $(STUB_DIR) $(SDK_CHECK) .build
 
-.PHONY: all clean test check-stubs need-sdk check-sdk-header
+.PHONY: FORCE all clean test check-stubs need-sdk check-sdk-header
+
+.PHONY: test-ar9311
+test-ar9311:
+	@mkdir -p .build/tests
+	$(HOSTCC) -O1 -g -Wall -Wextra -Werror -DKA_PLATFORM_AR9311 -Isrc \
+		tests/platform/ar9311.c src/unit/model.c src/app/settings.c \
+		src/backends/ar9311/platform.c -o .build/tests/ar9311
+	./.build/tests/ar9311

@@ -220,7 +220,7 @@ uint8_t video_features(void) {
     return (uint8_t)((lat_info() ? KA_FEAT_LATINFO | KA_FEAT_APCLOCK : 0) |
                      (ir_rows() > 0 ? KA_FEAT_INTRA_REFRESH : 0) |
                      (imu_dev ? KA_FEAT_CAM_IMU : 0) | (fc_imu ? KA_FEAT_FC_IMU : 0) |
-                     (radio_bw40_enabled() ? KA_FEAT_MAXBW : 0) | (cv610_has_864p120() ? KA_FEAT_864P120 : 0));
+                     (radio_bw40_enabled() ? KA_FEAT_MAXBW : 0) | (camera_has_864p120() ? KA_FEAT_864P120 : 0));
 }
 
 int venc_create(int kbps) {
@@ -393,28 +393,6 @@ int video_tgt_fps(void) { return fps; }
 int video_kbps(void) { return venc_kbps; }
 // Send start / stop: a request the read thread takes on its next
 // pass (stopping destroys the encoder); the caller waits up to 2 s for it.
-static int send_cmd(int enable) {
-    if (cmd_req) {
-        printf("video: send %s, warning: request busy\n", enable ? "start" : "stop");
-        return -1;
-    }
-    cmd_enable = enable;
-    cmd_req = 1;
-    for (int i = 0; i < 100 && cmd_req; i++) usleep(20000);
-    if (cmd_req) printf("video: send %s, fail\n", enable ? "start" : "stop");
-    return 0;
-}
-
-int video_send_start(void) { return send_cmd(1); }
-int video_send_stop(void) { return send_cmd(0); }
-
-void video_set_format(int w, int h, int f, int sensor_fps) {
-    width = w;
-    height = h;
-    fps = f;
-    src_fps = sensor_fps;
-}
-
 // ---- reading the encoder ---------------------------------------------------
 
 
@@ -518,3 +496,8 @@ int stream_get(uint8_t *dst, uint32_t room, vframe *out, int timeout_ms) {
     return 1;
 }
 
+
+void venc_input_enable(int enable) {
+    if (!enable) ss_mpi_venc_stop_chn(CHN);
+    else { ot_venc_start_param sp = { -1 }; ss_mpi_venc_start_chn(CHN, &sp); }
+}

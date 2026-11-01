@@ -19,6 +19,9 @@
 #include <string.h>
 #include <unistd.h>
 
+const char *cfg_path(void) { const char *p=getenv("KA_CONFIG"); return p && *p ? p : "/factory/fpv_config.json"; }
+const char *cfg_peer_path(void) { const char *p=getenv("KA_PEER_CONFIG"); return p && *p ? p : "/factory/user_cfg.json"; }
+
 static struct { const char *key; int val; } keys[] = {
     { "ev_x10", 0 }, { "scenes", 0 }, { "sat", 0 }, { "contrast", 0 }, { "sharpness", 0 },
     { "cct", 0 }, { "angle", 0 }, { "ratio", 1 },
