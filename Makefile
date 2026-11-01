@@ -112,12 +112,16 @@ $(BUILD_DIR)/%.o: %.c
 # radio frame's edge.
 HOSTCC ?= cc
 TEST_SRCS = $(wildcard tests/*.c) $(SRC_DIR)/ground/frame.c $(SRC_DIR)/common/crc.c \
-	$(SRC_DIR)/common/json.c $(SRC_DIR)/video/ring.c $(SRC_DIR)/app/settings.c \
+	$(SRC_DIR)/common/json.c $(SRC_DIR)/common/file.c $(SRC_DIR)/video/ring.c $(SRC_DIR)/app/settings.c \
 	$(SRC_DIR)/unit/model.c $(SRC_DIR)/video/slices.c $(SRC_DIR)/unit/fcpoll.c
 tests/run: $(TEST_SRCS) $(wildcard tests/*.h) $(wildcard protocol/*.h)
 	$(HOSTCC) -O1 -g -Wall -Wextra -pthread -I$(SRC_DIR) -Iprotocol -Itests -o $@ $(TEST_SRCS) -lm
 test: tests/run
 	./tests/run
+	@mkdir -p .build/tests
+	$(HOSTCC) -O1 -g -Wall -Wextra -Werror -Isrc tests/storage/file.c \
+		src/common/file.c -Wl,--wrap=fsync -Wl,--wrap=rename -o .build/tests/storage
+	./.build/tests/storage
 
 clean:
 	rm -f $(OBJS) $(OBJS:.o=.d) $(TARGET) tests/run

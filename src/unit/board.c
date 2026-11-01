@@ -106,9 +106,12 @@ static void save_peer_mac(const uint8_t m[4]) {
     }
     char arr[64];
     snprintf(arr, sizeof(arr), "[\"0x%02X\", \"0x%02X\", \"0x%02X\", \"0x%02X\"]", m[0], m[1], m[2], m[3]);
-    cfg_json_set(USER_CFG, "save_candidate_position", "0");
+    if (cfg_json_set(USER_CFG, "save_candidate_position", "0") ||
+        cfg_json_set(USER_CFG, "bb_mac_addr_0", arr)) {
+        puts("board: paired, but saving receiver settings failed");
+        return;
+    }
     printf("board: saved ground %d, mac=[%02X %02X %02X %02X]\n", 0, m[0], m[1], m[2], m[3]);
-    cfg_json_set(USER_CFG, "bb_mac_addr_0", arr);
 }
 
 static void do_match(void) {

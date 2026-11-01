@@ -1,6 +1,7 @@
 // A small JSON tree, enough for the unit's settings files: parse, write back
 // jansson-style (four-space indent, no trailing newline), keep member order.
 #include "json.h"
+#include "file.h"
 
 #include <ctype.h>
 #include <stdio.h>
@@ -97,14 +98,10 @@ static void jdump(FILE *f, const json_node *n, int depth) {
     fprintf(f, "%*s%c", depth * 4, "", close);
 }
 
+static void write_tree(FILE *f, const void *root) { jdump(f, root, 0); }
+
 int json_write(const char *path, const json_node *root) {
-    FILE *f = fopen(path, "w");
-    if (!f) return -1;
-    jdump(f, root, 0);
-    fflush(f);
-    fclose(f);
-    sync();
-    return 0;
+    return file_replace(path, write_tree, root);
 }
 
 // One number, bare or quoted: "0x66" as hex; a quoted string without the

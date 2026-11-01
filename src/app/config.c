@@ -11,6 +11,7 @@
 #include "kestrel_air.h"
 #include "app/config.h"
 #include "common/json.h"
+#include "common/file.h"
 #include "app/settings.h"
 
 #include <pthread.h>
@@ -76,19 +77,19 @@ void cfg_set(const char *key, int val) {
     pthread_mutex_unlock(&mtx);
 }
 
-int cfg_save(void) {
-    FILE *f = fopen(CFG_PATH, "w");
-    if (!f) return -1;
-    pthread_mutex_lock(&mtx);
+static void write_settings(FILE *f, const void *unused) {
+    (void)unused;
     fprintf(f, "{\n");
     for (int i = 0; i < NKEYS; i++)
         fprintf(f, "    \"%s\": %d%s\n", keys[i].key, keys[i].val, i + 1 < NKEYS ? "," : "");
     fprintf(f, "}");
+}
+
+int cfg_save(void) {
+    pthread_mutex_lock(&mtx);
+    int rc = file_replace(CFG_PATH, write_settings, NULL);
     pthread_mutex_unlock(&mtx);
-    fflush(f);
-    fclose(f);
-    sync();
-    return 0;
+    return rc;
 }
 
 // ---- other files ----------------------------------------------------------
