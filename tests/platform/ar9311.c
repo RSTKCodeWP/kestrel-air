@@ -11,8 +11,7 @@ int main(void) {
     assert(model_init("/nonexistent") == 0);
     assert(!strcmp(model_name(), "BETAFPV P1 Air"));
     assert(!model_lite_plus() && !model_cam_imu() && !model_radio_defaults());
-    assert(!platform_key_path() && !platform_fc_device());
-    assert(platform_red_gpio() < 0 && platform_green_gpio() < 0);
+    assert(!platform_fc_device() && !platform_key_upgrade());
     assert(platform_cpu_temp_x100() == INT_MIN && platform_hw_ver_mv() < 0);
     int w=1536,h=864,f=144;
     platform_format(&w,&h,&f);

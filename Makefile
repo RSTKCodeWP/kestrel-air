@@ -132,3 +132,7 @@ test-ar9311:
 		tests/platform/ar9311.c src/unit/model.c src/app/settings.c \
 		src/backends/ar9311/platform.c -o .build/tests/ar9311
 	./.build/tests/ar9311
+
+	$(HOSTCC) -O1 -g -Wall -Wextra -Werror -Isrc tests/platform/input.c \
+		src/backends/ar9311/platform.c -Wl,--wrap=ioctl -o .build/tests/ar9311-input
+	./.build/tests/ar9311-input

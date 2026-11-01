@@ -82,8 +82,19 @@ int platform_hw_ver_mv(void) {
 
 
 const char *platform_fc_device(void) { return "/dev/ttyAMA1"; }
-const char *platform_key_path(void) { return "/sys/class/gpio/gpio0/value"; }
-int platform_red_gpio(void) { return 63; }
-int platform_green_gpio(void) { return 8; }
+int platform_key_open(void) { return open("/sys/class/gpio/gpio0/value", O_RDONLY | O_CLOEXEC); }
+int platform_key_read(int fd, char *value) {
+    lseek(fd, 0, SEEK_SET);
+    return (int)read(fd, value, 1);
+}
+int platform_key_upgrade(void) { return 1; }
+void platform_led_set(int red, int on) {
+    char path[80];
+    snprintf(path, sizeof(path), "/sys/class/gpio/gpio%d/value", red ? 63 : 8);
+    int fd = open(path, O_WRONLY | O_CLOEXEC);
+    if (fd < 0) return;
+    if (write(fd, on ? "1" : "0", 1) < 0) { /* retain legacy best effort */ }
+    close(fd);
+}
 
 int platform_radio_board_controls(void) { return 1; }
