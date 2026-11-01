@@ -15,7 +15,7 @@
 #include <string.h>
 
 
-char keepRunning = 1;
+static volatile sig_atomic_t keepRunning = 1;
 
 static void usage(void) {
   printf(
@@ -86,6 +86,7 @@ int main(int argc, char *argv[]) {
   }
 
   signal(SIGINT, on_signal);
+  signal(SIGTERM, on_signal);
   // A peer that goes away is an error to report, not a reason to die
   // mid-write.
   signal(SIGPIPE, SIG_IGN);

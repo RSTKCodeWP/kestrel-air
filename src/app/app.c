@@ -62,7 +62,7 @@ int app_set_sensor_res(int w, int h, int fps, int angle) {
     return 0;
 }
 
-int app_run(volatile char *keep_running) {
+int app_run(volatile sig_atomic_t *keep_running) {
     printf("app: kestrel-air %s\n", KA_VERSION);
     settings_log();
     if (model_init(BOARD_TYPE_FILE)) {

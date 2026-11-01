@@ -172,3 +172,8 @@ as an Annex-B stream, the IMU SEI included.
 GPL-3.0 ([LICENSE](LICENSE)), with an additional permission to combine
 kestrel-air with the Hi3516CV610 SDK's libraries
 ([LICENSE.exception](LICENSE.exception)).
+
+The fpvOS AR9311 service supervises the launcher and camera workers as one
+process group. Kestrel handles SIGTERM and SIGINT through the same normal
+shutdown path. Stop `/etc/init.d/S60kestrel-air` before launching a manual camera
+test; service status and bounded RAM logs are under `/run/kestrel-air`.
