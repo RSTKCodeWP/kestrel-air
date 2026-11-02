@@ -13,6 +13,8 @@
 #include "platform/platform.h"
 
 #include <fcntl.h>
+#include <errno.h>
+#include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/mman.h>
@@ -22,6 +24,20 @@
 #include "radio/radio.h"
 #include "app/config.h"
 #include "app/settings.h"
+
+/* Optional OS readiness marker: camera initialization and radio startup have
+ * completed. It does not claim an RF link or a frame has been transmitted. */
+static void ready(int available) {
+    const char *path = getenv("KA_READY_FILE");
+    if (!path || !*path) return;
+    if (!available) { unlink(path); return; }
+    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC, 0600);
+    if (fd < 0) { perror("app readiness"); return; }
+    char text[32];
+    int n = snprintf(text, sizeof(text), "%ld\n", (long)getpid());
+    if (write(fd, text, n) != n) { perror("app readiness"); unlink(path); }
+    close(fd);
+}
 
 static int flying(void) { return fc_flying(); }
 
@@ -127,9 +143,11 @@ int app_run(volatile sig_atomic_t *keep_running) {
     }
     if (platform_fc_device()) fc_start(platform_fc_device());
     board_start();
+    if (!radio_init_failed) ready(1);
 
     while (*keep_running) usleep(100000);
 
+    ready(0);
     printf("app: stop streaming\n");
     video_stop();
     imu_stop();
