@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <unistd.h>
@@ -42,6 +43,11 @@ void platform_format(int *w, int *h, int *fps) {
     }
     int known = (*w == 1920 && *h == 1080) || (*w == 1280 && *h == 720) || (*w == 2560 && *h == 1440);
     if ((known && *fps > 99) || *fps > 100) *fps = 100;
+    /* PS5280 linear 1080p is 50 or 60. Its 100 fps mode is 1200x900, and the
+     * GT tuning bins are cam_ps5280_50fps / _60fps. A stored 120 becomes 60. */
+    if (*w == 1920 && *h == 1080 && *fps > 60 &&
+        camera_sensor_name() && strcmp(camera_sensor_name(), "ps5280") == 0)
+        *fps = 60;
 }
 
 int platform_fixed_format(void) { return 0; }
