@@ -31,8 +31,8 @@
 
 // The sensor: Ascents ship with either of two, both 1920x1080 on I2C 0x36
 // with 16-bit register addresses. The capture is the full 1080p but at 120
-// fps (864p120: a window of each, see cv610_has_864p120) and 144 (864p144:
-// the OS02K10's 1536x864 window, cv610_has_864p144); VPSS scales to the
+// fps (864p120: a window of each, see camera_has_864p120) and 144 (864p144:
+// the OS02K10's 1536x864 window, camera_has_864p144); VPSS scales to the
 // encoded size. They are told apart as the stock app
 // does, by two ID registers, the CV2004 first.
 typedef struct {
@@ -45,20 +45,20 @@ typedef struct {
     int bayer_follows_angle;      // the ISP's bayer order turns with the orientation
     int win120_w, win120_h;       // ours: its window at 120 fps (864p120)
     int win144_w, win144_h;       // ours: its window at 144 fps (864p144; 0: none)
-} cv610_sensor;
-static const cv610_sensor sensors[] = {
+} camera_sensor;
+static const camera_sensor sensors[] = {
     { "cv2004",  "libsns_cv2004.so",  "g_sns_cv2004_obj",  2004, 0x3002, { 0x04, 0x20 }, 1, 1, 1, 1536, 864, 0, 0 },
     // Stock leaves the ISP's order at BGGR at both orientations.
     { "os02k10", "libsns_os02k10.so", "g_sns_os02k10_obj", 1480, 0x300a, { 0x53, 0x02 }, 7, 0, 0, 1856, 1044, 1536, 864 },
 };
-static const cv610_sensor *sns = &sensors[0];
-const char *cv610_sensor_name(void) { return sns->name; }
-int cv610_sensor_type(void) { return sns->type; }
-int cv610_sensor_angle_tuning(void) { return sns->angle_tuning; }
+static const camera_sensor *sns = &sensors[0];
+const char *camera_sensor_name(void) { return sns->name; }
+int camera_sensor_type(void) { return sns->type; }
+int camera_sensor_angle_tuning(void) { return sns->angle_tuning; }
 #define SNS_I2C    0
 #define SNS_ADDR   0x36
 // Ours: the sensor's output - its whole 1920x1080, or at 120 or 144 fps its
-// driver's window (cv610_has_864p120, cv610_has_864p144).
+// driver's window (camera_has_864p120, camera_has_864p144).
 static int cap_w = 1920, cap_h = 1080;
 #define CAP_W      cap_w
 #define CAP_H      cap_h
@@ -97,10 +97,10 @@ static int sns_angle = -1;   // orientation to set before sensor init, -1: leave
 
 // The sensor's orientation, as stock sets it: before the sensor is
 // initialised, 0 normal, else mirror+flip.
-void cv610_set_sensor_angle(int angle) { sns_angle = angle; }
+void camera_set_sensor_angle(int angle) { sns_angle = angle; }
 
 static int ld_lines = 64;    // VPSS low delay, see vpss_setup
-void cv610_set_low_delay_lines(int lines) { ld_lines = lines; }
+void camera_set_low_delay_lines(int lines) { ld_lines = lines; }
 
 // Kernel-side MPP state outlives the process that made it. The vendor app we
 // replace - or a run of ours that died - leaves SYS, VB and ISP set up, and
@@ -312,7 +312,7 @@ static int sensor_detect(void) {
     if ((fd = open(dev, O_RDWR)) < 0) return 1;
     if (ioctl(fd, 0x0706 /* I2C_SLAVE_FORCE */, SNS_ADDR) == 0) {
         for (unsigned i = 0; i < sizeof(sensors) / sizeof(sensors[0]); i++) {
-            const cv610_sensor *c = &sensors[i];
+            const camera_sensor *c = &sensors[i];
             id0 = sensor_read(fd, c->id_reg);
             id1 = sensor_read(fd, c->id_reg + 1);
             printf("camera: sensor id 0x%x/%x = %02x %02x: %s\n", c->id_reg, c->id_reg + 1,
@@ -331,7 +331,7 @@ static int sensor_detect(void) {
     return 1;
 }
 
-void cv610_capture_size(int *w, int *h) { *w = cap_w; *h = cap_h; }
+void camera_capture_size(int *w, int *h) { *w = cap_w; *h = cap_h; }
 
 // Ours: how long the sensor takes to read the picture's rows (the capture's,
 // whole or window), us: its row time by its line length - the CV2004's 624
@@ -339,7 +339,7 @@ void cv610_capture_size(int *w, int *h) { *w = cap_w; *h = cap_h; }
 // 144 fps window modes) - times the rows. The VI's own line measure agrees
 // (4221 and 3654 ticks of its 475 MHz, 2026-10-12). The ground splits its
 // "Enc" into this and the rest.
-uint32_t cv610_readout_us(void) {
+uint32_t camera_readout_us(void) {
     double row_us;
     if (sns == &sensors[0]) {
         row_us = 8.8889;
@@ -354,9 +354,9 @@ uint32_t cv610_readout_us(void) {
 // 1080 do not), the OS02K10's 1856x1044 (97%: the ISP takes ~250 Mpx a second
 // of a line, which a whole 1920 pixels exceed at 120 fps), scaled. Only
 // fpvOS's drivers have those modes (they say so with cv2004_864p120 and
-// os02k10_120fps); the sensor is the one found last (cv610_sensor_probe finds
+// os02k10_120fps); the sensor is the one found last (camera_sensor_probe finds
 // it before the first pipeline).
-int cv610_has_864p120(void) {
+int camera_has_864p120(void) {
     static const char *const mark[] = { "cv2004_864p120", "os02k10_120fps" };
     static int known[] = { -1, -1 };
     const int i = (int)(sns - sensors);
@@ -374,7 +374,7 @@ int cv610_has_864p120(void) {
 // (os02k10_144fps). The CV2004 has none: at its fixed row time a 144 fps
 // frame holds ~780 rows, and a window must end before the frame does - a
 // 720-row one would sit well above the centre.
-int cv610_has_864p144(void) {
+int camera_has_864p144(void) {
     static int known[] = { -1, -1 };
     const int i = (int)(sns - sensors);
     if (known[i] < 0) {
@@ -393,7 +393,7 @@ int cv610_has_864p144(void) {
 // Before the first pipeline: which sensor this is, so what it can run is
 // known (864p120). Its clock and reset first, as stock does and as
 // mipi_setup does again later. 0: a sensor kestrel-air does not know.
-int cv610_sensor_probe(void) {
+int camera_sensor_probe(void) {
     int fd = open("/dev/ot_mipi_rx", O_RDWR);
     if (fd >= 0) {
         lane_divide_mode_t hs = LANE_DIVIDE_MODE_1;
@@ -505,7 +505,7 @@ static int vpss_setup(void) {
     // capture -> first slice out 6.9 -> 6.2 ms, last 11.4 -> 10.9 ms, at
     // 1080p100). But at 32 the encoder sometimes kept only every other picture
     // (50 fps) - always with intra refresh - so the caller sets 64, or 128 with
-    // intra refresh (cv610_set_low_delay_lines; 64: first slice out 6.3 ms).
+    // intra refresh (camera_set_low_delay_lines; 64: first slice out 6.3 ms).
     // KA_LD_LINES overrides it.
     memset(&ld, 0, sizeof(ld));
     ld.enable = TD_TRUE;
@@ -516,7 +516,7 @@ static int vpss_setup(void) {
     return 0;
 }
 
-int cv610_pipeline_create(char sensor, short width, short height, char framerate, int slice_count) {
+int camera_pipeline_create(char sensor, short width, short height, char framerate, int slice_count) {
     (void)sensor; (void)slice_count;
     out_w = width;
     out_h = height;
@@ -533,7 +533,7 @@ int cv610_pipeline_create(char sensor, short width, short height, char framerate
     return 0;
 }
 
-void cv610_pipeline_destroy(void) {
+void camera_pipeline_destroy(void) {
     ot_mpp_chn src = { OT_ID_VI, VI_PIPE, VI_CHN };
     ot_mpp_chn dst = { OT_ID_VPSS, VPSS_GRP, 0 };
 
@@ -562,7 +562,7 @@ void cv610_pipeline_destroy(void) {
     }
 }
 
-void cv610_system_deinit(void) {
+void camera_system_deinit(void) {
     ss_mpi_sys_exit();
     ss_mpi_vb_exit();
 }

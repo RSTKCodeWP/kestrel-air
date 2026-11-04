@@ -13,6 +13,7 @@
 #include <unistd.h>
 
 #include "app/app.h"
+#include "unit/model.h"
 #include "app/config.h"
 #include "app/state.h"
 #include "ground/ground.h"
@@ -157,6 +158,7 @@ static void init_cfg(const uint8_t *p, int len) {
 // SG_MSG_ID_SET_SKY_CFG_RESET: forget the settings and
 // the pairing, put the radio's config back from its .backup, reboot.
 static void config_reset(int param) {
+    if (!model_radio_defaults()) { puts("ground: stock configuration reset unsupported"); return; }
     char path[64] = "", backup[64], cmd[128];
     printf("ground: settings reset (%d)\n", param);
     if (system("rm -rf /factory/fpv_config.json") != 0) { /* as stock: carry on */ }

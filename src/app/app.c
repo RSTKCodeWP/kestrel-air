@@ -10,8 +10,11 @@
 #include "unit/board.h"
 #include "unit/model.h"
 #include "unit/fc.h"
+#include "platform/platform.h"
 
 #include <fcntl.h>
+#include <errno.h>
+#include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/mman.h>
@@ -22,74 +25,50 @@
 #include "app/config.h"
 #include "app/settings.h"
 
-static int flying(void) { return fc_flying(); }
-
-// Before the sensor is looked for: its 24 MHz clock select in bits 15:12 of
-// 0x11018440 (the same for the CV2004 and the OS02K10).
-static void sensor_boot(void) {
-    int fd = open("/dev/mem", O_RDWR | O_SYNC);
-    if (fd >= 0) {
-        volatile uint32_t *r = mmap(NULL, 0x10000, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0x11010000);
-        if (r != MAP_FAILED) {
-            uint32_t v = r[0x8440 / 4];
-            if (((v >> 12) & 0xf) != 4) r[0x8440 / 4] = (v & ~0xf000u) | 0x4000;
-            munmap((void *)r, 0x10000);
-        }
-        close(fd);
-    }
+/* Optional OS readiness marker: camera initialization and radio startup have
+ * completed. It does not claim an RF link or a frame has been transmitted. */
+static void ready(int available) {
+    const char *path = getenv("KA_READY_FILE");
+    if (!path || !*path) return;
+    if (!available) { unlink(path); return; }
+    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC, 0600);
+    if (fd < 0) { perror("app readiness"); return; }
+    char text[32];
+    int n = snprintf(text, sizeof(text), "%ld\n", (long)getpid());
+    if (write(fd, text, n) != n) { perror("app readiness"); unlink(path); }
+    close(fd);
 }
+
+static int flying(void) { return fc_flying(); }
 
 // /tmp/devinfo2.txt, as stock writes it once the sensor has answered.
 static void sensor_devinfo(void) {
     char cmd[80];
-    snprintf(cmd, sizeof(cmd), "echo \"sensor_name=%s\n\" > /tmp/devinfo2.txt", cv610_sensor_name());
+    snprintf(cmd, sizeof(cmd), "echo \"sensor_name=%s\n\" > /tmp/devinfo2.txt", camera_sensor_name());
     if (system(cmd) != 0) { /* as stock */ }
-}
-
-// The recording path and the SD card, mounted if present.
-// Recording itself is a stub in the stock build too.
-static void record_init(void) {
-    if (access("/record/", F_OK) && system("mkdir /record/") != 0) { /* as stock */ }
-    if (system("mountpoint /record/") == 0) return;
-    if (system("mount /dev/mmcblk1p1 /record/") == 0) return;
-    if (system("mount /dev/mmcblk1 /record/") != 0)
-        puts("app: mounting the SD card on /record failed");
 }
 
 // Output sizes: the sensors run 1080p, 720p and 1440p requests at
 // up to 100 fps; anything else passes through, at up to 100 fps too. Ours:
 // 864p120 (1536x864 at 120, KA_FEAT_864P120) and 864p144 (at 144, the info's
 // 864p144=1) where the camera has them.
-void app_ch0_remap(int *w, int *h, int *fps) {
-    if (*w == 1536 && *h == 864 && *fps >= 144 && cv610_has_864p144()) {
-        *fps = 144;
-        return;
-    }
-    if (*w == 1536 && *h == 864 && *fps >= 120 && cv610_has_864p120()) {
-        *fps = 120;
-        return;
-    }
-    int known = (*w == 1920 && *h == 1080) || (*w == 1280 && *h == 720) || (*w == 2560 && *h == 1440);
-    if ((known && *fps > 99) || *fps > 100) *fps = 100;
-}
+void app_ch0_remap(int *w, int *h, int *fps) { platform_format(w, h, fps); }
 
 // The sensor's mode for a rate: its 60 and 50 fps modes (both sensors have 50, 60 and 100) when asked for
 // exactly those, its 100 fps mode otherwise (the encoder drops the rest). Ours: 120, a window,
 // only for 864p120, and 144, the OS02K10's window, only for 864p144 (app_ch0_remap).
-static int sensor_fps(int fps) { return fps == 60 ? 60 : fps == 50 ? 50 : fps == 120 ? 120 : fps == 144 ? 144 : 100; }
-
 // A new output size or rate: tear the whole pipeline down and bring it up
 // again at the new output size and rate, with the sensor turned for angle.
 // The encoder has to be stopped first (video_send_stop).
 int app_set_sensor_res(int w, int h, int fps, int angle) {
     printf("app: new output %dx%d@%d, angle %d\n", w, h, fps, angle);
-    int sf = sensor_fps(fps);
+    int sf = platform_sensor_fps(fps);
     image_pause();
-    cv610_pipeline_destroy();
-    cv610_system_deinit();
-    cv610_set_sensor_angle(angle);
-    cv610_set_low_delay_lines(video_low_delay_lines());
-    if (cv610_pipeline_create(0, w, h, (char)sf, 0)) {
+    camera_pipeline_destroy();
+    camera_system_deinit();
+    camera_set_sensor_angle(angle);
+    camera_set_low_delay_lines(video_low_delay_lines());
+    if (camera_pipeline_create(0, w, h, (char)sf, 0)) {
         fprintf(stderr, "app: camera pipeline restart failed\n");
         return -1;
     }
@@ -99,7 +78,7 @@ int app_set_sensor_res(int w, int h, int fps, int angle) {
     return 0;
 }
 
-int app_run(volatile char *keep_running) {
+int app_run(volatile sig_atomic_t *keep_running) {
     printf("app: kestrel-air %s\n", KA_VERSION);
     settings_log();
     if (model_init(BOARD_TYPE_FILE)) {
@@ -109,29 +88,34 @@ int app_run(volatile char *keep_running) {
     }
     board_leds_boot();
     if (cfg_load()) printf("app: no %s, wrote the defaults\n", CFG_PATH);
-    sensor_boot();
+    platform_sensor_boot();
     // Ours: the sensor before the first pipeline, so that a stored 864p120 is
     // run the way this sensor runs it (the pipeline fails on an unknown one).
-    cv610_sensor_probe();
+    camera_sensor_probe();
     int w = cfg_get("ch0_width", 1920), h = cfg_get("ch0_height", 1080), f = cfg_get("ch0_fps", 120);
     int angle = cfg_get("angle", 0);
     app_ch0_remap(&w, &h, &f);
-    int sf = sensor_fps(f);
+    cfg_set("ch0_width", w); cfg_set("ch0_height", h); cfg_set("ch0_fps", f);
+    int sf = platform_sensor_fps(f);
 
     // VI/ISP/VPSS with the sensor turned as configured, the
     // tuning bin and the image settings. The encoder waits for the ground.
-    cv610_set_sensor_angle(angle);
-    cv610_set_low_delay_lines(video_low_delay_lines());
-    if (cv610_pipeline_create(0, w, h, (char)sf, 0)) {
+    camera_set_sensor_angle(angle);
+    camera_set_low_delay_lines(video_low_delay_lines());
+    if (camera_pipeline_create(0, w, h, (char)sf, 0)) {
         fprintf(stderr, "app: camera pipeline failed\n");
         return 1;
     }
     sensor_devinfo();
     video_set_format(w, h, f, sf);
-    image_start(sf, angle);
+    if (image_start(sf, angle)) {
+        camera_pipeline_destroy();
+        camera_system_deinit();
+        return 1;
+    }
     image_apply_all();
 
-    record_init();
+    platform_record_init();
 
     // Ours, not stock's: wake the IMU. Without it the video simply carries no SEI.
     // IMU data (--imu), from where this board has it: the camera's own IMU (cam-imu, the
@@ -157,15 +141,18 @@ int app_run(volatile char *keep_running) {
         video_start();
         ground_start();
     }
-    fc_start("/dev/ttyAMA1");
+    if (platform_fc_device()) fc_start(platform_fc_device());
     board_start();
+    if (!radio_init_failed) ready(1);
 
     while (*keep_running) usleep(100000);
 
+    ready(0);
     printf("app: stop streaming\n");
     video_stop();
     imu_stop();
-    cv610_pipeline_destroy();
-    cv610_system_deinit();
+    image_pause();
+    camera_pipeline_destroy();
+    camera_system_deinit();
     return 0;
 }

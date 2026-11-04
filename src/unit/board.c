@@ -9,9 +9,11 @@
 //   SoC over 90 C, pairing, no link, encoder stalled, all well.
 // - Debug commands on UDP 4486 (the subset that does something here).
 //
-// The GPIOs are exported and set to in/out by the launcher, as stock's is.
+// The platform backend owns key/LED access. P1 uses Linux input and LED
+// classes; it pairs on release and has no legacy long-hold upgrade action.
 
 #include "unit/board.h"
+#include "platform/platform.h"
 #include "video/video.h"
 #include "app/state.h"
 
@@ -30,27 +32,16 @@
 #include "app/config.h"
 #include "common/clock.h"
 
-#define KEY_GPIO   "/sys/class/gpio/gpio0/value"
-#define LED_R      63
-#define LED_G      8
-#define USER_CFG   "/factory/user_cfg.json"
+#define LED_R 1
+#define LED_G 0
+#define USER_CFG cfg_peer_path()
 
 static volatile int manu_trig;
 static volatile int pairing;
 
 // ---- LEDs -----------------------------------------------------------------
 
-static void gpio_set(int gpio, int on) {
-    char path[64];
-    snprintf(path, sizeof(path), "/sys/class/gpio/gpio%d/value", gpio);
-    int fd = open(path, O_WRONLY);
-    if (fd < 0) {
-        printf("board: cannot open %s\n", path);
-        return;
-    }
-    if (write(fd, on ? "1" : "0", 1) < 0) { /* nothing to do */ }
-    close(fd);
-}
+static void gpio_set(int red, int on) { platform_led_set(red, on); }
 
 static void led(int r, int g) {
     gpio_set(LED_R, r);
@@ -115,9 +106,12 @@ static void save_peer_mac(const uint8_t m[4]) {
     }
     char arr[64];
     snprintf(arr, sizeof(arr), "[\"0x%02X\", \"0x%02X\", \"0x%02X\", \"0x%02X\"]", m[0], m[1], m[2], m[3]);
-    cfg_json_set(USER_CFG, "save_candidate_position", "0");
+    if (cfg_json_set(USER_CFG, "save_candidate_position", "0") ||
+        cfg_json_set(USER_CFG, "bb_mac_addr_0", arr)) {
+        puts("board: paired, but saving receiver settings failed");
+        return;
+    }
     printf("board: saved ground %d, mac=[%02X %02X %02X %02X]\n", 0, m[0], m[1], m[2], m[3]);
-    cfg_json_set(USER_CFG, "bb_mac_addr_0", arr);
 }
 
 static void do_match(void) {
@@ -147,19 +141,13 @@ static void upgrade_key_send(void) {
     close(s);
 }
 
-static int key_read(int fd, char *c) {
-    lseek(fd, 0, SEEK_SET);
-    return (int)read(fd, c, 1);
-}
+static int key_read(int fd, char *c) { return platform_key_read(fd, c); }
 
 static void *key_thread(void *arg) {
     (void)arg;
     char c;
-    int fd = open(KEY_GPIO, O_RDONLY);
-    if (fd <= 0) {
-        puts("board: cannot open the key input");
-        return NULL;
-    }
+    int fd = platform_key_open();
+    if (fd < 0) puts("board: cannot open the key input");
     for (;;) {
         if (manu_trig) {
             puts("board: pairing asked for");
@@ -167,23 +155,24 @@ static void *key_thread(void *arg) {
             usleep(10000);
             manu_trig = 0;
         }
+        if (fd < 0) { usleep(20000); continue; }
         int n = key_read(fd, &c);
         if (n <= 0) { printf("board: key read failed (1, %d)\n", n); break; }
         if (c == '1') { usleep(20000); continue; }             // released
         if ((n = key_read(fd, &c)) <= 0) { puts("board: key read failed (2)"); break; }
         if (c == '1') continue;                                // a glitch
-        uint32_t t0 = wall_ms();
+        uint32_t t0 = mono_ms32();
         printf("board: key %c\n", c);
         for (;;) {
             if (key_read(fd, &c) <= 0) { puts("board: key read failed (3)"); usleep(30000); break; }
-            uint32_t dt = wall_ms() - t0;
+            uint32_t dt = mono_ms32() - t0;
             if (c != '0') {                                    // released: pair
                 printf("board: key %c held %u ms: pairing\n", c, dt);
                 do_match();
                 usleep(30000);
                 break;
             }
-            if (dt >= 8000) {                                  // held 8 s: upgrade
+            if (dt >= 8000 && platform_key_upgrade()) {                                  // held 8 s: upgrade
                 upgrade_key_send();
                 printf("board: key held %u ms: upgrade mode\n", dt);
                 usleep(30000);

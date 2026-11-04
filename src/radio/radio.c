@@ -13,6 +13,8 @@
 #include "radio/frameclock.h"
 #include "radio/internal.h"
 #include "unit/model.h"
+#include "platform/platform.h"
+#include "kestrel_air.h"
 
 #include <fcntl.h>
 #include <pthread.h>
@@ -113,6 +115,7 @@ int r_dispatch(uint8_t cmd, const uint8_t *args, int nargs) {
 }
 
 void r_set_rf_path_b(int enable) {
+    if (!platform_radio_board_controls()) return;
     // Stock sends 256 bytes from a 17-byte buffer; the rest is heap
     // leftovers there, zeros here.
     uint8_t a[3] = { 0x01, 0x03, (uint8_t)enable };
@@ -128,12 +131,14 @@ void r_set_fem(int on) {
 }
 
 void r_set_adc_meas(int chn, uint32_t period_ms) {
+    if (!platform_radio_board_controls()) return;
     uint8_t a[8] = { (uint8_t)chn, 0, 0, 0 };
     memcpy(a + 4, &period_ms, 4);
     r_dispatch(0x8a, a, 8);
 }
 
 int r_get_adc(int chn) {
+    if (!platform_radio_board_controls()) return 0;
     uint8_t in[256], out[256];
     memset(in, 0, sizeof(in));
     in[0] = 0x89;
@@ -170,6 +175,7 @@ void radio_set_mcs_policy(void) {
 }
 
 void radio_set_uart_mode(int mode) {
+    if (!platform_radio_board_controls()) return;
     uint8_t a[2] = { 2, (uint8_t)mode };
     r_dispatch(0x8f, a, 2);
 }
@@ -468,7 +474,6 @@ int radio_start(const radio_hooks *hk) {
     pthread_t t;
 
     if (hk) r_hooks = *hk;
-    cfg_load();
 
     // A radio that never comes up (no /dev/arlink0: an upload that failed, a
     // chip that does not answer) fails here after a while, so the caller can
@@ -550,7 +555,7 @@ int radio_start(const radio_hooks *hk) {
         pthread_detach(t);
     }
 
-    frameclock_start();              // the radio clock off the radio's frame (radio/frameclock.c)
+    if (video_features() & KA_FEAT_APCLOCK) frameclock_start();              // the radio clock off the radio's frame (radio/frameclock.c)
 
     radio_set_mcs_policy();
 
@@ -559,7 +564,8 @@ int radio_start(const radio_hooks *hk) {
     int mac[4];
     memset(cand, 0, sizeof(cand));
     cand[1] = 1;
-    if (cfg_json_ints("/factory/user_cfg.json", "bb_mac_addr_0", mac, 4) == 4) {
+    int have_peer = cfg_json_ints(cfg_peer_path(), "bb_mac_addr_0", mac, 4) == 4;
+    if (have_peer) {
         int all0 = 1, allf = 1;
         for (int i = 0; i < 4; i++) {
             all0 &= (mac[i] & 0xff) == 0;
@@ -568,8 +574,9 @@ int radio_start(const radio_hooks *hk) {
         if (!all0 && !allf)
             for (int i = 0; i < 4; i++) cand[2 + i] = (uint8_t)mac[i];
     }
-    r_set(0x0004, cand, sizeof(cand));
+    if (have_peer || model_radio_defaults()) r_set(0x0004, cand, sizeof(cand));
 
+    if (model_radio_defaults()) {
     int off[4] = { 0, 0, 0, 0 };
     if (cfg_json_ints("/usrdata/mp_cfg.json", "bb_power_offset", off, 4) < 2)
         cfg_json_ints("/factory/user_cfg.json", "bb_power_offset", off, 4);
@@ -587,6 +594,8 @@ int radio_start(const radio_hooks *hk) {
             r_set(0x006e, o, 4);
         }
     }
+
+    } // P1 calibration is already in the per-device radio configuration.
 
     pthread_create(&t, NULL, r_standby_thread, NULL);
     pthread_detach(t);

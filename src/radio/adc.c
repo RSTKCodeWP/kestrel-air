@@ -2,6 +2,7 @@
 #include "radio/internal.h"
 
 #include <fcntl.h>
+#include <limits.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,6 +11,7 @@
 #include <unistd.h>
 
 #include "app/config.h"
+#include "platform/platform.h"
 #include "app/state.h"
 #include "common/clock.h"
 
@@ -46,32 +48,15 @@ int radio_batt_mv(void) {
 
 
 // The SoC's temperature sensor, read through /dev/mem as stock reads it.
-static int cpu_temp_x100(void) {
-    static volatile uint32_t *regs;
-    static int tried;
-    if (!regs && !tried) {
-        tried = 1;
-        int fd = open("/dev/mem", O_RDWR | O_SYNC);
-        if (fd >= 0) {
-            void *m = mmap(NULL, 0x1000, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0x1102a000);
-            if (m != MAP_FAILED) regs = m;
-            close(fd);
-        }
-    }
-    if (!regs) return 0;
-    double raw = regs[2] & 0x3ff;
-    return (int)(float)(((raw - 127) * 165 / 784 - 40) * 100);
-}
-
 // The SoC temperature, every 500 ms: the SoC temperature (at
 // 110 C stock reboots the unit, and so does this), then the battery ADC.
 void *r_adc_thread(void *arg) {
     (void)arg;
     for (;;) {
-        int t = cpu_temp_x100();
+        int t = platform_cpu_temp_x100();
         shared.cpu_temp_x100 = t;
-        if (t < 11000) shared.cpu_hot = t >= 9000;   // the LED warning, nothing else
-        if (t >= 11000) {
+        if (t != INT_MIN && t < 11000) shared.cpu_hot = t >= 9000;   // the LED warning, nothing else
+        if (t != INT_MIN && t >= 11000) {
             printf("radio: SoC at %d.%02d C: rebooting\n", t / 100, t % 100);
             if (system("reboot") != 0) { /* nothing more to do */ }
             sleep(2);

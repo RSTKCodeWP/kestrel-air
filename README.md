@@ -10,6 +10,12 @@ it. What it does the stock way was reverse-engineered from the stock air app;
 on top of that it sends each slice as soon as it is encoded, with intra
 refresh instead of periodic keyframes, and tells kestrel-gnd its own timing.
 
+An experimental **BETAFPV P1 Air / AR9311** backend uses fpvOS's source camera
+and encoder drivers through V4L2. It currently sends complete 1080p60 HEVC frames;
+the slice encoding and intra-refresh features above apply to HiSilicon only.
+See [AR9311 development](docs/ar9311.md) for building, provisioning and limitations.
+The SDK build and runtime instructions below describe the default HiSilicon backend.
+
 The radio is reached through [ar_libre](https://github.com/gehee/ar_libre)'s
 client library, straight through the radio's device file with no daemon:
 either the stock `/dev/artosyn_sdio`, or `/dev/arlink0` with ar_libre's own
@@ -166,3 +172,8 @@ as an Annex-B stream, the IMU SEI included.
 GPL-3.0 ([LICENSE](LICENSE)), with an additional permission to combine
 kestrel-air with the Hi3516CV610 SDK's libraries
 ([LICENSE.exception](LICENSE.exception)).
+
+The fpvOS AR9311 service supervises the launcher and camera workers as one
+process group. Kestrel handles SIGTERM and SIGINT through the same normal
+shutdown path. Stop `/etc/init.d/S60kestrel-air` before launching a manual camera
+test; service status and bounded RAM logs are under `/run/kestrel-air`.

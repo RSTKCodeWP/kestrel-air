@@ -33,6 +33,11 @@ static const struct { int board_type, prj, cam_imu; const char *name; } models[]
 static int cur;
 
 int model_init(const char *board_type_file) {
+#ifdef KA_PLATFORM_AR9311
+    (void)board_type_file;
+    puts("model: BETAFPV P1 Air (AR9311)");
+    return 0;
+#endif
     int bt = env_int("KA_BOARD_TYPE", 0);
     const char *from = "KA_BOARD_TYPE";
     if (!bt) {
@@ -58,8 +63,20 @@ int model_init(const char *board_type_file) {
     return -1;
 }
 
+#ifdef KA_PLATFORM_AR9311
+// Zero denotes an unassigned stock protocol ID, not a HiSilicon board.
+int model_radio_defaults(void) { return 0; }
+int model_board_type(void) { return 0; }
+int model_prj(void) { return 0; }
+int model_lite_plus(void) { return 0; }
+int model_cam_imu(void) { return 0; }
+const char *model_name(void) { return "BETAFPV P1 Air"; }
+#else
+int model_radio_defaults(void) { return 1; }
 int model_board_type(void) { return models[cur].board_type; }
 int model_prj(void) { return models[cur].prj; }
 int model_lite_plus(void) { return models[cur].board_type == 472; }
 int model_cam_imu(void) { return models[cur].cam_imu; }
 const char *model_name(void) { return models[cur].name; }
+
+#endif

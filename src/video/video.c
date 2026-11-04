@@ -34,7 +34,6 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "sdk/cv610.h"
 #include "radio/radio.h"
 #include "app/config.h"
 #include "common/clock.h"
@@ -490,11 +489,10 @@ static void *drop_thread(void *arg) {
             pthread_mutex_lock(&venc_mtx);
             if (venc_running) {
                 if (left_frames >= 6 || busy) {
-                    if (enabled) ss_mpi_venc_stop_chn(CHN);
+                    if (enabled) venc_input_enable(0);
                     enabled = 0;
                 } else if (!enabled) {
-                    ot_venc_start_param sp = { -1 };
-                    ss_mpi_venc_start_chn(CHN, &sp);
+                    venc_input_enable(1);
                     enabled = 1;
                 }
             }

@@ -1,7 +1,9 @@
 #pragma once
 
 // The stock air app's settings (see config.c).
-#define CFG_PATH "/factory/fpv_config.json"
+#define CFG_PATH cfg_path()
+const char *cfg_path(void);
+const char *cfg_peer_path(void);
 
 int  cfg_load(void);                        // -1 if the file is missing
 int  cfg_get(const char *key, int def);

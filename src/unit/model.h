@@ -9,3 +9,5 @@ int  model_prj(void);           // stock's project number for it: 4 or 7
 int  model_lite_plus(void);     // the Lite+: four power offsets, a high-power FEM
 int  model_cam_imu(void);       // an IMU on the camera head: the Lite yes, the Lite+ no
 const char *model_name(void);
+
+int model_radio_defaults(void); // Legacy power-offset files and empty peer defaults

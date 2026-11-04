@@ -18,7 +18,7 @@ int  video_tgt_fps(void);
 int  video_send_start(void);
 int  video_send_stop(void);
 void video_set_format(int w, int h, int fps, int sensor_fps);
-int  video_low_delay_lines(void);        // for cv610_set_low_delay_lines
+int  video_low_delay_lines(void);        // for camera_set_low_delay_lines
 
 // What this air app can do (KA_FEAT_* in protocol/kestrel_air.h), announced
 // in the version message and every slice header.

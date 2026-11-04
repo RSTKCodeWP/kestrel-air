@@ -38,3 +38,6 @@ void set_venc_bitrate(int f, int kbps, int reason);
 void venc_down(int reason);
 // The next packet (a slice) into dst: 1 got one, 0 none within timeout_ms, -1 error.
 int  stream_get(uint8_t *dst, uint32_t room, vframe *out, int timeout_ms);
+
+// Called under venc_mtx; pause submission, keep draining completed output.
+void venc_input_enable(int enable);
