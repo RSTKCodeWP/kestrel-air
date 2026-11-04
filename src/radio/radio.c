@@ -555,7 +555,7 @@ int radio_start(const radio_hooks *hk) {
         pthread_detach(t);
     }
 
-    if (video_features() & KA_FEAT_APCLOCK) frameclock_start();              // the radio clock off the radio's frame (radio/frameclock.c)
+    if (platform_frameclock()) frameclock_start();   // the radio clock off the radio's frame (radio/frameclock.c)
 
     radio_set_mcs_policy();
 

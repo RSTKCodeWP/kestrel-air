@@ -7,7 +7,7 @@ typedef struct {
     atomic_int venc_running;     // the encoder channel exists
     atomic_int low_power;        // the standby low-power mode is on
     atomic_int cam_flag;         // camera settings to resend to the ground
-    atomic_int cpu_temp_x100;    // the SoC's temperature, C x 100
+    atomic_int cpu_temp_x100;    // the SoC's temperature, C x 100, INT_MIN unread
     atomic_int cpu_hot;          // 90..110 C: the LED warning
     atomic_uint venc_get_fail;   // encoder reads that failed
     atomic_uint vsend_fail;      // radio writes that came up short

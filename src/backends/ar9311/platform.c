@@ -13,6 +13,7 @@
 void platform_sensor_boot(void) { /* Clock/reset owned by the sensor driver. */ }
 void platform_record_init(void) { /* Storage is mounted by the OS. */ }
 void platform_format(int *w, int *h, int *fps) { *w = 1920; *h = 1080; *fps = 60; }
+int platform_fixed_format(void) { return 1; }
 int platform_sensor_fps(int fps) { (void)fps; return 60; }
 const char *platform_fc_device(void) { return NULL; } // P1 FC UART not validated yet
 int platform_cpu_temp_x100(void) { return INT_MIN; } // No validated thermal provider yet
@@ -55,3 +56,4 @@ void platform_led_set(int red, int on) {
 }
 
 int platform_radio_board_controls(void) { return 0; }
+int platform_frameclock(void) { return 0; } // capture timing not calibrated to the radio clock yet

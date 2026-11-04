@@ -25,7 +25,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define BUFFERS 5
+#define BUFFERS 5   // also caps left_frames below the drop thread's 6 (video/video.c)
 #define PLANES 3
 #define CAPTURE V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE
 #define OUTPUT V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE
@@ -82,6 +82,28 @@ static void fail(const char *what)
 	exit(EXIT_FAILURE);
 }
 
+// A capture or encoder fault while streaming tears the channel down here and
+// the read loop makes a new one (video/video.c), so a passing fault costs a
+// moment of video, not the process (the supervisor gives up after 5 short
+// runs). More than RECOVER_MAX in a minute is no passing fault: exit. Called
+// with venc_mtx held, as every user of the fds holds it.
+#define RECOVER_MAX 5
+static int recover(const char *what)
+{
+	static uint64_t since;
+	static int count;
+	perror(what);
+	uint64_t now = mono_us();
+	if (!since || now - since > 60000000) { since = now; count = 0; }
+	if (++count > RECOVER_MAX) {
+		fprintf(stderr, "video: %d camera/encoder faults in a minute\n", count);
+		exit(EXIT_FAILURE);
+	}
+	printf("video: %s - a new encoder channel (%d this minute)\n", what, count);
+	cleanup();
+	return -1;
+}
+
 static void checked(int fd, unsigned long request, void *arg, const char *what)
 {
 	if (xioctl(fd, request, arg)) fail(what);
@@ -96,11 +118,11 @@ static struct v4l2_buffer buffer(unsigned int type, unsigned int memory,
 	};
 }
 
-static void queue_camera(unsigned int index)
+static int queue_camera(unsigned int index)
 {
 	struct v4l2_plane p[PLANES] = {0};
 	struct v4l2_buffer b = buffer(CAPTURE, MMAP, index, PLANES, p);
-	checked(capture_fd, VIDIOC_QBUF, &b, "camera QBUF");
+	return xioctl(capture_fd, VIDIOC_QBUF, &b);
 }
 
 static void request_buffers(int fd, unsigned int type, unsigned int memory)
@@ -112,10 +134,15 @@ static void request_buffers(int fd, unsigned int type, unsigned int memory)
 	if (r.count < BUFFERS) { errno = ENOMEM; fail("buffer count"); }
 }
 
-static void control(unsigned int id, int value)
+static int set_control(unsigned int id, int value)
 {
 	struct v4l2_control c = { .id = id, .value = value };
-	checked(encoder_fd, VIDIOC_S_CTRL, &c, "encoder control");
+	return xioctl(encoder_fd, VIDIOC_S_CTRL, &c);
+}
+
+static void control(unsigned int id, int value)
+{
+	if (set_control(id, value)) fail("encoder control");
 }
 
 
@@ -154,7 +181,7 @@ int venc_create(int kbps) {
 			camera[i][j].fd = x.fd;
 			camera[i][j].size = p[j].length;
 		}
-		queue_camera(i);
+		if (queue_camera(i)) fail("camera QBUF");
 	}
 
 	struct v4l2_format ef = cf;
@@ -230,39 +257,41 @@ static int get_frame(uint8_t *dst,uint32_t room,vframe *out) {
     struct v4l2_buffer b=buffer(OUTPUT,DMABUF,0,PLANES,p);
     while(xioctl(encoder_fd,VIDIOC_DQBUF,&b)==0) {
         if(b.index>=BUFFERS || !held[b.index] || (b.flags&V4L2_BUF_FLAG_ERROR)) {
-            errno=EIO; fail("encoder source return");
+            errno=EIO; return recover("encoder source return");
         }
-        held[b.index]=0; queue_camera(b.index); returned++; progress=mono_us();
+        held[b.index]=0;
+        if(queue_camera(b.index)) return recover("camera QBUF");
+        returned++; progress=mono_us();
         memset(p,0,sizeof(p)); b=buffer(OUTPUT,DMABUF,0,PLANES,p);
     }
-    if(errno!=EAGAIN) fail("source DQBUF");
+    if(errno!=EAGAIN) return recover("source DQBUF");
     memset(p,0,sizeof(p)); b=buffer(CAPTURE,MMAP,0,1,p);
     if(xioctl(encoder_fd,VIDIOC_DQBUF,&b)==0) {
         if(b.index>=BUFFERS || p[0].bytesused>coded[b.index].size ||
            p[0].bytesused<=p[0].data_offset || (b.flags&V4L2_BUF_FLAG_ERROR)) {
-            errno=EIO; fail("encoded frame");
+            errno=EIO; return recover("encoded frame");
         }
         size_t n=p[0].bytesused-p[0].data_offset;
-        if(n>room) { errno=EMSGSIZE; fail("encoded frame exceeds packet capacity"); }
+        if(n>room) { errno=EMSGSIZE; return recover("encoded frame exceeds packet capacity"); }
         memcpy(dst,(char *)coded[b.index].data+p[0].data_offset,n);
         out->len=n; out->type=(b.flags&V4L2_BUF_FLAG_KEYFRAME)?1:0;
         out->frame_end=1;
         out->pts=(uint64_t)b.timestamp.tv_sec*1000000+b.timestamp.tv_usec;
-        checked(encoder_fd,VIDIOC_QBUF,&b,"coded requeue");
+        if(xioctl(encoder_fd,VIDIOC_QBUF,&b)) return recover("coded requeue");
         received++; left_frames=submitted-received; progress=mono_us();
         return 1;
     }
-    if(errno!=EAGAIN) fail("coded DQBUF");
+    if(errno!=EAGAIN) return recover("coded DQBUF");
     memset(p,0,sizeof(p)); b=buffer(CAPTURE,MMAP,0,PLANES,p);
     if(xioctl(capture_fd,VIDIOC_DQBUF,&b)==0) {
         if(b.index>=BUFFERS || held[b.index] || (b.flags&V4L2_BUF_FLAG_ERROR)) {
-            errno=EIO; fail("camera buffer");
+            errno=EIO; return recover("camera buffer");
         }
         unsigned index=b.index;
         if(warmup || !enabled) {
-            queue_camera(index);
+            if(queue_camera(index)) return recover("camera QBUF");
             if(warmup && !--warmup && ar9311_controls_start()) {
-                errno=EIO; fail("camera automatic controls");
+                errno=EIO; return recover("camera automatic controls");
             }
             progress=mono_us();
             return 0;
@@ -274,11 +303,11 @@ static int get_frame(uint8_t *dst,uint32_t room,vframe *out) {
             p[j].m.fd=camera[index][j].fd;
             p[j].length=p[j].bytesused=camera[index][j].size;
         }
-        checked(encoder_fd,VIDIOC_QBUF,&b,"encoder DMA-BUF QBUF");
+        if(xioctl(encoder_fd,VIDIOC_QBUF,&b)) return recover("encoder DMA-BUF QBUF");
         held[index]=1; submitted++; left_frames=submitted-received;
-    } else if(errno!=EAGAIN) fail("camera DQBUF");
-    if(!warmup && ar9311_controls_alive()) { errno=EIO; fail("camera controller exited"); }
-    if(mono_us()-progress>5000000) { errno=ETIMEDOUT; fail("camera/encoder stalled"); }
+    } else if(errno!=EAGAIN) return recover("camera DQBUF");
+    if(!warmup && ar9311_controls_alive()) { errno=EIO; return recover("camera controller exited"); }
+    if(mono_us()-progress>5000000) { errno=ETIMEDOUT; return recover("camera/encoder stalled"); }
     return 0;
 }
 int stream_get(uint8_t *dst,uint32_t room,vframe *out,int timeout_ms) {
@@ -289,7 +318,7 @@ int stream_get(uint8_t *dst,uint32_t room,vframe *out,int timeout_ms) {
         r=get_frame(dst,room,out);
         if(r || mono_us()>=until) break;
         struct pollfd pf[2]={{capture_fd,POLLIN,0},{encoder_fd,POLLIN,0}};
-        if(poll(pf,2,2)<0 && errno!=EINTR) fail("video poll");
+        if(poll(pf,2,2)<0 && errno!=EINTR) { r=recover("video poll"); break; }
     }
     pthread_mutex_unlock(&venc_mtx);
     return r;
@@ -307,8 +336,8 @@ void set_venc_bitrate(int f,int kbps,int reason) {
     kbps=kbps<128?128:kbps>20000?20000:kbps;
     pthread_mutex_lock(&venc_mtx);
     if(venc_running && kbps!=venc_kbps) {
-        control(V4L2_CID_MPEG_VIDEO_BITRATE,kbps*1000);
-        venc_kbps=kbps;
+        if(set_control(V4L2_CID_MPEG_VIDEO_BITRATE,kbps*1000)) recover("encoder bitrate");
+        else venc_kbps=kbps;
     }
     pthread_mutex_unlock(&venc_mtx);
 }
@@ -319,6 +348,6 @@ void video_scale_bitrate(int num,int den) {
 }
 void video_enable_idr(int on) {
     pthread_mutex_lock(&venc_mtx);
-    if(on && venc_running) control(V4L2_CID_MPEG_VIDEO_FORCE_KEY_FRAME,0);
+    if(on && venc_running && set_control(V4L2_CID_MPEG_VIDEO_FORCE_KEY_FRAME,0)) recover("encoder keyframe");
     pthread_mutex_unlock(&venc_mtx);
 }

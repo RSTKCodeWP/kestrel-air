@@ -1,6 +1,7 @@
 #include "platform/platform.h"
 #include "camera/pipeline.h"
 #include <fcntl.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -41,6 +42,8 @@ void platform_format(int *w, int *h, int *fps) {
     if ((known && *fps > 99) || *fps > 100) *fps = 100;
 }
 
+int platform_fixed_format(void) { return 0; }
+
 int platform_sensor_fps(int fps) { return fps == 60 ? 60 : fps == 50 ? 50 : fps == 120 ? 120 : fps == 144 ? 144 : 100; }
 
 int platform_cpu_temp_x100(void) {
@@ -55,7 +58,7 @@ int platform_cpu_temp_x100(void) {
             close(fd);
         }
     }
-    if (!regs) return 0;
+    if (!regs) return INT_MIN;
     double raw = regs[2] & 0x3ff;
     return (int)(float)(((raw - 127) * 165 / 784 - 40) * 100);
 }
@@ -63,7 +66,7 @@ int platform_cpu_temp_x100(void) {
 int platform_hw_ver_mv(void) {
     int fd = open("/dev/ot_lsadc", O_RDWR), sum = 0;
     uint32_t model = 1, ch = 1;
-    if (fd < 0) return 0;
+    if (fd < 0) return -1;
     if (ioctl(fd, 0xc0044100, &model) >= 0 && ioctl(fd, 0x40044101, &ch) >= 0) {
         usleep(100);
         if (ioctl(fd, 0x4103) >= 0) {
@@ -77,7 +80,7 @@ int platform_hw_ver_mv(void) {
     ioctl(fd, 0x40044102, &ch);
     close(fd);
     int avg = sum / 5;
-    return avg > 0x3ff ? 0 : (int)(avg * 3300.0 / 1023.0);
+    return avg > 0x3ff ? -1 : (int)(avg * 3300.0 / 1023.0);
 }
 
 
@@ -98,3 +101,4 @@ void platform_led_set(int red, int on) {
 }
 
 int platform_radio_board_controls(void) { return 1; }
+int platform_frameclock(void) { return 1; } // camera frame lock runs on it

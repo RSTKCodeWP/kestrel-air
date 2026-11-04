@@ -479,7 +479,10 @@ static void *send_thread(void *arg) {
 }
 
 // Pause the encoder's input while its output or
-// the send path is backed up.
+// the send path is backed up. The 6-picture backlog is the CV610's: on the
+// AR9311 left_frames is the pictures in the encoder, at most its 5 camera
+// buffers (backends/ar9311/encoder.c), so only `busy` pauses it there - a full
+// encoder already holds every camera buffer and capture waits for one back.
 static void *drop_thread(void *arg) {
     (void)arg;
     for (;;) {

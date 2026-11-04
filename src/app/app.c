@@ -95,7 +95,10 @@ int app_run(volatile sig_atomic_t *keep_running) {
     int w = cfg_get("ch0_width", 1920), h = cfg_get("ch0_height", 1080), f = cfg_get("ch0_fps", 120);
     int angle = cfg_get("angle", 0);
     app_ch0_remap(&w, &h, &f);
-    cfg_set("ch0_width", w); cfg_set("ch0_height", h); cfg_set("ch0_fps", f);
+    // A backend with one mode stores it, so that the goggle is told the mode
+    // that runs. The others keep the request and clamp it again at each start:
+    // a 1080p120 request stays 120, an 864p144 one stays for a camera that has it.
+    if (platform_fixed_format()) { cfg_set("ch0_width", w); cfg_set("ch0_height", h); cfg_set("ch0_fps", f); }
     int sf = platform_sensor_fps(f);
 
     // VI/ISP/VPSS with the sensor turned as configured, the

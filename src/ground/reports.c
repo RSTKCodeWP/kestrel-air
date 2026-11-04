@@ -212,8 +212,10 @@ static void send_period(void) {
     image_isp_info isp;
     memset(m, 0, sizeof(m));
     m[0] = 0x05;
+    // No reading goes out as 0, as the Lite always sent one: the goggle shows
+    // this byte as degrees C, so 0x7f would read 127 C, an overheating unit.
     int t = shared.cpu_temp_x100;
-    m[1] = (uint8_t)(int8_t)(t == INT_MIN || t >= 12800 ? 0x7f : (t / 100 < -100 ? -100 : t / 100));
+    m[1] = (uint8_t)(int8_t)(t == INT_MIN ? 0 : t >= 12800 ? 0x7f : (t / 100 < -100 ? -100 : t / 100));
     uint16_t pw = (uint16_t)cfg_get("bb_power_mw", 501);
     memcpy(m + 9, &pw, 2);
     uint32_t mv = (uint32_t)radio_batt_mv();
