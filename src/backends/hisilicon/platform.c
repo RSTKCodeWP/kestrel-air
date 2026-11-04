@@ -14,7 +14,9 @@ void platform_sensor_boot(void) {
         volatile uint32_t *r = mmap(NULL, 0x10000, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0x11010000);
         if (r != MAP_FAILED) {
             uint32_t v = r[0x8440 / 4];
-            if (((v >> 12) & 0xf) != 4) r[0x8440 / 4] = (v & ~0xf000u) | 0x4000;
+            // 0 is the boot default. 4 is 24 MHz (CV2004, OS02K10). Leave a
+            // 27 MHz select (10, the PS5280) for the pipeline to confirm.
+            if (((v >> 12) & 0xf) == 0) r[0x8440 / 4] = (v & ~0xf000u) | 0x4000;
             munmap((void *)r, 0x10000);
         }
         close(fd);
